@@ -12,6 +12,7 @@ from django.http import JsonResponse
 from django.core.mail import send_mail, EmailMessage
 import random
 from response_utils import success_response, not_found_response, bad_request_response, forbidden_response, unauthorized_response, server_error_response
+from django.contrib.auth.hashers import make_password
 
 class UserCreateView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
@@ -36,13 +37,19 @@ def updateUser(request):
         decoded_token = JWTAuthentication().get_validated_token(token)
         user = JWTAuthentication().get_user(decoded_token)
 
-        if user.is_user_active == False:
-            return bad_request_response(msg="You cant update details until you verify your email address!")
+        if not user.is_user_active:
+            return bad_request_response(msg="You can't update details until you verify your email address!")
 
         body_unicode = request.body.decode('utf-8')
         body = json.loads(body_unicode)
+
+        # Exclude password from update if not provided
+        if 'password' in body:
+            body['password'] = make_password(body['password'])
+
         serialized_data = {key: value for key, value in body.items()}  # Convert to dictionary
-        queryset = CustomUser.objects.filter(id=user.id).update(**serialized_data) 
+        queryset = CustomUser.objects.filter(id=user.id).update(**serialized_data)
+        
         return success_response(msg="User Updated Successfully.")
     except Exception as e:
         return server_error_response(apiMsg="Error while updating user!", error=str(e))
@@ -78,6 +85,7 @@ def send_otp(request):
     try:
         user = request.user
         otp = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        print(f'OTP for verifying Email is: {otp}')
 
         body = f"""
             <!DOCTYPE html>
@@ -187,7 +195,7 @@ def verify_otp(request):
 
         elif body['otp'] == userQueryset.otp:
             queryset = CustomUser.objects.filter(id=user.id).update(otp=None, is_user_active=True)
-            return bad_request_response(msg="Your account has been activated. Now you can update your details")
+            return success_response(msg="Your account has been activated. Now you can update your details")
         
         else:
             return bad_request_response(msg="OTP is invalid. Try again...")
